@@ -13,8 +13,18 @@ const int N = 200; //test value
 int ProcNum; // Number of available processes
 int ProcRank; // Rank of current process
 
-void init(double **&mx, double *&b, double max, double min, int m)
+void init(double** &mx, double* &b, double max, double min, int &m)
 {
+	if (ProcRank == 0)
+	{
+		cout << "Input the size of the matrix:\n";
+		cin >> m;
+	}
+	MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	mx = new double*[m];
+	for (int i = 0; i<m; i++)
+	    mx[i] = new double[m];
+	b = new double[m];
 	for (int i = 0; i < m; ++i)
 	{
 		b[i] = (max - min) * ((double) rand()/(double)RAND_MAX) + min;
@@ -26,6 +36,8 @@ void init(double **&mx, double *&b, double max, double min, int m)
 			mx[i][j] = (max - min) * ((double)rand()/(double)RAND_MAX) + min;
 		}
 	}
+	/*MPI_Bcast(mx, m*m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(b, m, MPI_DOUBLE, 0, MPI_COMM_WORLD);*/
 }
 
 void printMatrix(double **&mx, int m)
@@ -132,6 +144,30 @@ double getXi(double **&mx, double *&b, int m, int i, double d)
 	return getDeterminant(p, m)/d;
 }
 
+void ParallelResultCalculation(double **&mx, double *&b, int*&mn, int*& ms, double *&x, int m, double d)
+{
+	for (int i = ms[ProcRank]; i < mn[ProcRank] + ms[ProcRank]; ++i)
+	{
+		x[i-ms[ProcRank]] = getXi (mx, b, m, i, d);
+	}
+}
+
+void TestPartialResults(double *&x, int*&mn, int*& ms)
+{
+	for (int j = 0; j < ProcNum; ++j)
+	{
+		if (ProcRank == j)
+		{
+			cout << "In process " << j << endl;
+			for (int i = ms[ProcRank]; i < mn[ProcRank] + ms[ProcRank]; ++i)
+			{
+				cout << x[i-ms[ProcRank]] << " ";
+			}
+		}
+		cout << endl;
+	}
+}
+
 
 int main(int argc, char*argv[]) 
 {
@@ -141,20 +177,13 @@ int main(int argc, char*argv[])
 
 	srand(time(NULL));
 	int m = N;
+	double** mx;
+	double* b;
 	double** pProcMatrix; // Stripe of the matrix on current process
 	double* pProcResult; // Block of result vector on current process
 	
-	if (ProcRank == 0)
-	{
-		cout << "Input the size of the matrix\n";
-		cin >> m;
-	}
-	double** mx;
-	mx = new double*[m];
-	for (int i = 0; i<m; i++)
-	    mx[i] = new double[m];
-	double* b = new double[m];
 	init(mx, b, 2, 0, m);
+	MPI_Barrier(MPI_COMM_WORLD);
 
 	int* matrixNumbers;
 	matrixNumbers = new int[ProcNum];
@@ -172,8 +201,13 @@ int main(int argc, char*argv[])
 		}
 		matrixStarts[i] = sum;
 		sum+=matrixNumbers[i];
+		if (ProcRank == i)
+		{
+			pProcResult = new double[matrixNumbers[i]];
+		}
 	}
 	
+		
 	/*cout << "matrix A:\n";
 	printMatrix(mx, m);
 	cout << "vector b: \n";
@@ -182,20 +216,30 @@ int main(int argc, char*argv[])
 		cout << b[i] << " ";
 	}
 	cout << '\n';*/
+		
 
 	double* x = new double[m];
+	MPI_Scatter(x, matrixNumbers[ProcRank], MPI_DOUBLE, pProcResult, matrixNumbers[ProcRank], MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	time_t START, FINISH;
-	if (ProcRank == 0)
+	double d;
+	if (ProcRank == 0){
 		START = clock();
-	double d = getDeterminant(mx, m);
-	//cout << "Determinant is " << d << '\n';
-	for (int i = matrixStarts[ProcRank]; i < matrixStarts[ProcRank] + matrixNumbers[ProcRank]; ++i)
-	{
-		x[i] = getXi(mx, b, m, i, d);
-		cout << "The value of " << i+1 << "-th unknown is " << x[i] << '\n';
+		d = getDeterminant(mx, m);
 	}
+	MPI_Bcast(&d, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Barrier(MPI_COMM_WORLD);
+	//cout << "Determinant is " << d << '\n';
+	ParallelResultCalculation(mx, b, matrixNumbers, matrixStarts, pProcResult, m, d);
+	MPI_Barrier(MPI_COMM_WORLD);
+	//TestPartialResults(pProcResult, matrixNumbers, matrixStarts);
+	MPI_Allgather(pProcResult, matrixNumbers[ProcRank], MPI_DOUBLE, x, matrixNumbers[ProcRank], MPI_DOUBLE, MPI_COMM_WORLD);
+	MPI_Barrier(MPI_COMM_WORLD);
 	if (ProcRank == 0)
 	{
+		for (int i = 0; i < m; ++i)
+		{
+			cout << "Value of " << i+1 << "-th unknown: " << x[i] << endl;
+		}
 		FINISH = clock();
 		cout << "Time taken by MPI algorithm: " << double(FINISH - START) / CLOCKS_PER_SEC << "s\n";
 	}
