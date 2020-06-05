@@ -21,23 +21,29 @@ void init(double** &mx, double* &b, double max, double min, int &m)
 		cin >> m;
 	}
 	MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	mx = new double*[m];
-	for (int i = 0; i<m; i++)
-	    mx[i] = new double[m];
-	b = new double[m];
-	for (int i = 0; i < m; ++i)
+
+	double *data = (double *)malloc(m*m*sizeof(double));
+	mx = (double **)malloc(m*sizeof(double*));
+	for (int i=0; i<m; i++)
+	    mx[i] = &(data[m*i]);
+	b = (double *)malloc(m*m*sizeof(double));
+
+	if (ProcRank == 0)
 	{
-		b[i] = (max - min) * ((double) rand()/(double)RAND_MAX) + min;
-	}
-	for (int i = 0; i < m; ++i)
-	{
-		for (int j = 0; j < m; ++j)
+		for (int i = 0; i < m; ++i)
 		{
-			mx[i][j] = (max - min) * ((double)rand()/(double)RAND_MAX) + min;
+			b[i] = (max - min) * ((double) rand()/(double)RAND_MAX) + min;
+		}
+		for (int i = 0; i < m; ++i)
+		{
+			for (int j = 0; j < m; ++j)
+			{
+				mx[i][j] = (max - min) * ((double)rand()/(double)RAND_MAX) + min;
+			}
 		}
 	}
-	/*MPI_Bcast(mx, m*m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	MPI_Bcast(b, m, MPI_DOUBLE, 0, MPI_COMM_WORLD);*/
+	MPI_Bcast(&(mx[0][0]), m*m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&(b[0]), m, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 }
 
 void printMatrix(double **&mx, int m)
